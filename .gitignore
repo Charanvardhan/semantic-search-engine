@@ -1,0 +1,22 @@
+# Virtual environments
+venv/
+semanticsearchengine/
+
+# Python caching
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Testing cache
+.pytest_cache/
+
+# Databases and binary cache files
+data/
+*.db
+*.bin
+
+# IDE and OS files
+.DS_Store
+.vscode/
+.idea/
