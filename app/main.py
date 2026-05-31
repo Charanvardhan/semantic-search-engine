@@ -1,6 +1,10 @@
 from fastapi import FastAPI, Query
 from app.data_gen import generate_documents
 from app.engine import VectorSearchEngine
+from app.benchmark import run_scale_benchmark
+
+# In-memory history to store our benchmarking results
+benchmark_history = []
 
 # 1. Initialize the FastAPI Application
 app = FastAPI(title="MVP Semantic Search Engine")
@@ -65,4 +69,40 @@ def rebuild_index(dataset_size: int = Query(1000, description="Number of documen
     return {
         "message": "Index rebuilt successfully",
         "stats": stats
+    }
+
+@app.post("/api/benchmark/run")
+def run_benchmark(sizes: str = Query("1000,3000,5000", description="Comma-separated document scales to test")):
+    """
+    Triggers an automated scale benchmark run, measuring index build times, QPS, 
+    and p95 latencies across the requested document counts.
+    """
+    global benchmark_history
+    try:
+        # Parse the comma-separated string into a list of integers
+        scales = [int(s.strip()) for s in sizes.split(",") if s.strip().isdigit()]
+        if not scales:
+            scales = [1000, 3000, 5000]
+    except Exception:
+        scales = [1000, 3000, 5000]
+        
+    print(f"API: Launching benchmark for scales {scales}...")
+    run_results = run_scale_benchmark(engine, scales=scales)
+    
+    # Store in history
+    benchmark_history.extend(run_results)
+    
+    return {
+        "message": "Benchmark completed successfully",
+        "results": run_results
+    }
+
+@app.get("/api/benchmark/results")
+def get_benchmark_results():
+    """
+    Retrieves the historical collection of all run benchmark metrics.
+    """
+    return {
+        "history_count": len(benchmark_history),
+        "results": benchmark_history
     }
