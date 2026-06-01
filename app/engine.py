@@ -90,13 +90,16 @@ class VectorSearchEngine:
         )
         embeddings = embeddings.astype("float32")
 
+        # L2-normalize vectors to support Cosine Similarity via Inner Product (IP)
+        faiss.normalize_L2(embeddings)
+
         # Step 2+3 — Build the FAISS index
         if n < IVF_THRESHOLD:
-            # Small corpus: exact brute-force scan, no training needed.
-            print(f"  → Using IndexFlatL2 (N={n} < {IVF_THRESHOLD}, exact search).")
-            self.index = faiss.IndexFlatL2(EMBEDDING_DIM)
+            # Small corpus: exact brute-force Cosine Similarity search, no training needed.
+            print(f"  → Using IndexFlatIP (N={n} < {IVF_THRESHOLD}, Cosine Similarity search).")
+            self.index = faiss.IndexFlatIP(EMBEDDING_DIM)
             self.index.add(embeddings)
-            self._index_type = "FlatL2"
+            self._index_type = "FlatIP"
             self._nlist = 0
             self._nprobe = 1
 
@@ -105,23 +108,23 @@ class VectorSearchEngine:
             nlist = self._compute_nlist(n)
             nprobe = max(1, nlist // 10)
             print(
-                f"  → Using IndexIVFFlat (N={n}, nlist={nlist}, nprobe={nprobe})."
+                f"  → Using IndexIVFFlat (N={n}, nlist={nlist}, nprobe={nprobe}, Cosine Similarity search)."
             )
 
-            # Coarse quantizer: a flat L2 index that maps each vector to its nearest centroid.
-            quantizer = faiss.IndexFlatL2(EMBEDDING_DIM)
+            # Coarse quantizer: a flat IP index that maps each vector to its nearest centroid.
+            quantizer = faiss.IndexFlatIP(EMBEDDING_DIM)
 
             # IVFFlat partitions the space into nlist Voronoi cells.
             # Training runs k-means on the embeddings to learn the centroids.
             self.index = faiss.IndexIVFFlat(
-                quantizer, EMBEDDING_DIM, nlist, faiss.METRIC_L2
+                quantizer, EMBEDDING_DIM, nlist, faiss.METRIC_INNER_PRODUCT
             )
             print(f"  → Training IVFFlat on {n} vectors...")
             self.index.train(embeddings)   # learns nlist centroids via k-means
             self.index.add(embeddings)     # assigns each vector to its nearest centroid cell
             self.index.nprobe = nprobe     # cells to scan per query (recall vs latency knob)
 
-            self._index_type = f"IVFFlat(nlist={nlist})"
+            self._index_type = f"IVFFlat(nlist={nlist}, FlatIP)"
             self._nlist = nlist
             self._nprobe = nprobe
 
@@ -168,6 +171,9 @@ class VectorSearchEngine:
             self.model.encode([query], convert_to_numpy=True).astype("float32")
         )
 
+        # Normalize the query vector to unit length (critical for Cosine Similarity)
+        faiss.normalize_L2(query_vector)
+
         # Run ANN (or exact) search — returns top-limit (distance, index) pairs
         distances, indices = self.index.search(query_vector, limit)
 
@@ -180,7 +186,7 @@ class VectorSearchEngine:
             results.append(
                 {
                     "id": doc["id"],
-                    "score": float(dist),  # L2 distance (lower = more similar)
+                    "score": float(dist),  # Cosine Similarity score (higher = more similar)
                     "title": doc["title"],
                     "body": doc["body"],
                     "category": doc["category"],
